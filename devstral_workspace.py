@@ -974,7 +974,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         # Create choices with descriptive labels
         for screenshot in screenshots:
-            target_file = generations_map.get(screenshot["name"], "Unknown")
+            gen_info = generations_map.get(screenshot["name"], {})
+            target_file = gen_info.get("target_file", "Unknown") if isinstance(gen_info, dict) else "Unknown"
             modified_str = screenshot["modified"].strftime("%Y-%m-%d %H:%M")
             label = f"{screenshot['name'][:16]}... → {target_file} ({modified_str})"
             choices.append((label, screenshot['path']))
@@ -1004,7 +1005,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         if gen.get("screenshot") == screenshot_name:
                             target_file = gen.get("target_file", "")
                             prompt = gen.get("prompt", "")
+                            self.add_terminal_output(f"📸 Found metadata: target={target_file}, prompt={prompt[:50]}...")
                             break
+            
+            if not target_file and not prompt:
+                self.add_terminal_output(f"⚠️ No metadata found for screenshot: {screenshot_name}")
             
             return img, target_file, prompt, f"✅ Loaded screenshot: {screenshot_name}"
             
@@ -1270,6 +1275,19 @@ def create_interface():
         history_table.select(
             fn=lambda evt: evt.value.iloc[evt.index[0]]["ID"] if evt.index[0] < len(evt.value) else "",
             outputs=selected_id
+        )
+        
+        # Auto-refresh file tree every 2 seconds when a project is loaded
+        def auto_refresh_file_tree():
+            if ide.current_project:
+                return ide.get_file_tree()
+            return gr.update()
+        
+        # Set up a timer to refresh the file tree
+        file_tree_timer = gr.Timer(2.0)
+        file_tree_timer.tick(
+            fn=auto_refresh_file_tree,
+            outputs=file_tree
         )
     
     return app
