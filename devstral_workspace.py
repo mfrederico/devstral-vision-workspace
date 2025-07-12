@@ -244,16 +244,45 @@ Do not add these links again. Use Bootstrap 5.3.7 components, utilities, and gri
             # Decode
             response = self.processor.decode(outputs[0], skip_special_tokens=True)
             
-            # Extract code
+            # Extract code - remove the prompt and instructions
             if "[IMG]" in response:
-                code = response.split("[IMG]")[-1].strip()
-                # Remove the prompt from the response
-                if system_instruction in code:
-                    code = code.replace(system_instruction, "").strip()
-                if custom_prompt and custom_prompt in code:
-                    code = code.replace(custom_prompt, "").strip()
+                # Split by [IMG] and take everything after it
+                parts = response.split("[IMG]")
+                if len(parts) > 1:
+                    code = parts[-1].strip()
+                else:
+                    code = response
             else:
                 code = response
+            
+            # Remove the system instruction if it appears in the output
+            instruction_markers = [
+                "Generate semantic HTML with Bootstrap",
+                "Generate a React component",
+                "Generate a Vue 3 component", 
+                "Generate a Next.js component",
+                "IMPORTANT: The HTML already includes",
+                "Do not add these links again",
+                "Additional requirements:"
+            ]
+            
+            # Find where the actual code starts
+            code_start_markers = ["<!DOCTYPE", "<html", "import React", "import {", "<template>", "export default", "function", "const", "HTML:", "```"]
+            
+            # Try to find where the actual code begins
+            earliest_code_start = len(code)
+            for marker in code_start_markers:
+                idx = code.find(marker)
+                if idx != -1 and idx < earliest_code_start:
+                    earliest_code_start = idx
+            
+            # If we found a code start marker, use it
+            if earliest_code_start < len(code):
+                code = code[earliest_code_start:].strip()
+            
+            # Clean up "HTML:" prefix if present
+            if code.startswith("HTML:"):
+                code = code[5:].strip()
             
             # Extract from markdown if present
             if "```" in code:
@@ -762,13 +791,26 @@ document.addEventListener('DOMContentLoaded', function() {
             if not self.preview_port:
                 return "❌ No available ports", ""
             
-            # Install dependencies if needed
-            if not (self.current_project / "node_modules").exists():
-                self.add_terminal_output("📦 Installing dependencies...")
-                subprocess.run(["npm", "install"], cwd=self.current_project, capture_output=True)
+            # Check project type to determine how to start server
+            package_json = self.current_project / "package.json"
             
-            # Start Vite server
-            cmd = ["npm", "run", "dev", "--", "--port", str(self.preview_port)]
+            if package_json.exists():
+                # Node.js based project (React, Vue, Next.js)
+                # Install dependencies if needed
+                if not (self.current_project / "node_modules").exists():
+                    self.add_terminal_output("📦 Installing dependencies...")
+                    result = subprocess.run(["npm", "install"], cwd=self.current_project, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        self.add_terminal_output(f"❌ npm install failed: {result.stderr}")
+                        return "❌ Failed to install dependencies", ""
+                
+                # Start dev server
+                cmd = ["npm", "run", "dev", "--", "--port", str(self.preview_port)]
+            else:
+                # HTML/Bootstrap project - use Python's http.server
+                self.add_terminal_output("🌐 Starting Python HTTP server for HTML project...")
+                cmd = ["python", "-m", "http.server", str(self.preview_port)]
+            
             self.dev_server_process = subprocess.Popen(
                 cmd,
                 cwd=self.current_project,
@@ -780,8 +822,10 @@ document.addEventListener('DOMContentLoaded', function() {
             
             # Start thread to read output
             def read_output():
-                for line in self.dev_server_process.stdout:
-                    self.add_terminal_output(line.strip())
+                if self.dev_server_process.stdout:
+                    for line in self.dev_server_process.stdout:
+                        if line:
+                            self.add_terminal_output(line.strip())
             
             thread = threading.Thread(target=read_output)
             thread.daemon = True
@@ -914,7 +958,7 @@ document.addEventListener('DOMContentLoaded', function() {
         # Sort by modification time, newest first
         screenshots.sort(key=lambda x: x["modified"], reverse=True)
         
-        # Load metadata to get associated target files
+        # Load metadata to get associated target files and prompts
         meta_file = self.current_project / "meta.json"
         generations_map = {}
         
@@ -923,7 +967,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 meta = json.load(f)
                 for gen in meta.get("generations", []):
                     if gen.get("screenshot"):
-                        generations_map[gen["screenshot"]] = gen.get("target_file", "Unknown")
+                        generations_map[gen["screenshot"]] = {
+                            "target_file": gen.get("target_file", "Unknown"),
+                            "prompt": gen.get("prompt", "")
+                        }
         
         # Create choices with descriptive labels
         for screenshot in screenshots:
@@ -995,13 +1042,6 @@ def create_interface():
         
         Manage and build applications with AI assistance
         """)
-        
-        # Important notice about loading model
-        gr.Markdown("""
-        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px; padding: 10px; margin-bottom: 10px;">
-            <strong>⚠️ Important:</strong> Please <strong>Load Model</strong> first (in the left sidebar) before generating code!
-        </div>
-        """, elem_id="model-warning")
         
         with gr.Row():
             # Left sidebar
