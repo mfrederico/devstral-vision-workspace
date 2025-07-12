@@ -220,6 +220,9 @@ Do not add these links again. Use Bootstrap 5.3.7 components, utilities, and gri
                 images=image,
                 return_tensors="pt"
             )
+
+            print(f"Prompt : {prompt}");
+            print(f"Image  : {image}");
             
             # Move to device
             for k, v in inputs.items():
@@ -255,6 +258,8 @@ Do not add these links again. Use Bootstrap 5.3.7 components, utilities, and gri
             else:
                 code = response
             
+            print(f"Raw Code  : {code}");
+
             # Remove the system instruction if it appears in the output
             instruction_markers = [
                 "Generate semantic HTML with Bootstrap",
